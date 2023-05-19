@@ -78,11 +78,19 @@ public:
     return Kp*p_error + Ki*i_error + Kd*d_error;
     }
 }
+
 void signal_handler(int sig, siginfo_t *siginfo, void *context)
 {
     system("killall -9 python rosout");
     exit(0);
 }
+
+int Width = 640;
+int Height = 480;
+int Offset = 390;
+int Gap = 40;
+
+std::vector<int> image;
 
 void img_callback(const sensor_msgs::ImageConstPtr& data)
 {
