@@ -1,63 +1,14 @@
 import rospy
 from sensor_msgs.msg import LaserScan
-from sensor_msgs.msg import Imu
 from xycar_motor.msg import xycar_motor
 import time
 import numpy as np
-
-pub = None
+ 
+msg_list = None
 
 def callback(msg):
-    regions = {
-        'right':  min(min(msg.ranges[0:143]), 10),
-        'fright': min(min(msg.ranges[144:287]), 10),
-        'front':  min(min(msg.ranges[288:431]), 10),
-        'fleft':  min(min(msg.ranges[432:575]), 10),
-        'left':   min(min(msg.ranges[576:713]), 10),
-    }
-    take_action(regions)
-
-def take_action(regions):
-
-    state_description = ''
-    global case
-    if regions['front'] > 1 and regions['fleft'] > 1 and regions['fright'] > 1:
-        state_description = 'case 1 - nothing'
-        case = '1'
-        
-    elif regions['front'] < 1 and regions['fleft'] > 1 and regions['fright'] > 1:
-        state_description = 'case 2 - front'
-        case = '2'
-        
-    elif regions['front'] > 1 and regions['fleft'] > 1 and regions['fright'] < 1:
-        state_description = 'case 3 - fright'
-        case = '3'
-        
-    elif regions['front'] > 1 and regions['fleft'] < 1 and regions['fright'] > 1:
-        state_description = 'case 4 - fleft'
-        case = '4'
-        
-    elif regions['front'] < 1 and regions['fleft'] > 1 and regions['fright'] < 1:
-        state_description = 'case 5 - front and fright'
-        case = '5'
-        
-    elif regions['front'] < 1 and regions['fleft'] < 1 and regions['fright'] > 1:
-        state_description = 'case 6 - front and fleft'
-        case = '6'
-        
-    elif regions['front'] < 1 and regions['fleft'] < 1 and regions['fright'] < 1:
-        state_description = 'case 7 - front and fleft and fright'
-        case = '7'
-        
-    elif regions['front'] > 1 and regions['fleft'] < 1 and regions['fright'] < 1:
-        state_description = 'case 8 - fleft and fright'
-        case = '8'
-        
-    else:
-        state_description = 'unknown case'
-        rospy.loginfo(regions)
-
-    rospy.loginfo(state_description)
+    global msg_list
+    msg_list = np.array(msg.ranges)
 
 def motor(angle, speed):
     global pub
@@ -69,58 +20,47 @@ def motor(angle, speed):
     pub.publish(motor_control)
 
 motor_control = xycar_motor()
+rospy.init_node("driver")
+rospy.Subscriber('/scan', LaserScan, callback)
+pub = rospy.Publisher('xycar_motor', xycar_motor, queue_size = 1)
 
-def main():
+while not rospy.is_shutdown():
+    # lidar detection
+    left_range = msg_list[(msg_list.size * 1) // 6 : (msg_list.size * 2) // 6]
+    front_range = np.append(msg_list[:(msg_list.size * 1)], msg_list[(msg_list.size * 5) // 6:])
+    right_range = msg_list[(msg_list.size * 4) // 6 : (msg_list.size * 5) // 6]
     
-    rospy.init_node("miro_drive")
-    rospy.Subscriber('/scan', LaserScan, callback)
-    pub = rospy.Publisher('xycar_motor', xycar_motor, queue_size = 1)
+    left_range = left_range[left_range != 0]
+    right_range = right_range[right_range != 0]
+    front_range = front_range[front_range != 0]
+    try:
+        min_front = min(front_range)
+        min_left = min(left_range)
+        min_right = min(right_range)
 
-    while not rospy.is_shutdown():
-        
-        try:
-            
-            if case == '1':                      # nothing
-                angle = 0
-                speed = 30
-                motor(angle,speed)              
-                
-            elif case == '2':                    # front
-                angle = -5
-                speed = 0
-                motor(angle,speed)
-                
-            elif case == '3':                    # fright
-                angle = -5
-                speed = 0
-                motor(angle,speed)
-                        
-            elif case == '4':                    # fleft
-                angle = 5
-                speed = 0
-                motor(angle,speed)
-                
-            elif case == '5':                    # front and fright
-                angle = -5
-                speed = 0
-                motor(angle,speed)
-                
-            elif case == '6':                   # front and fleft
-                angle = 5
-                speed = 0
-                motor(angle,speed)
-                
-            elif case == '7':                   # front and fleft and fright
-                angle = -5
-                speed = 0
-                motor(angle,speed)
-                
-            elif case == '8':                   # fleft and fright
-                angle = -5
-                speed = 0
-                motor(angle,speed)
-                
-        except: pass
+        distance = 0.25
 
-if __name__ == '__main__':
-    main()
+        if min_front < 0.15:
+            speed, angle = 0, 0
+            motor(angle, speed)
+            print("CLAER")
+            break
+        elif min_left >= distance and min_right >= distance:
+            speed, angle = 3, 0
+            motor(angle, speed)
+            time.sleep(0.1)
+
+        elif min_left < distance:
+            speed, angle = 3, 50
+            motor(angle, speed)
+            time.sleep(0.1)
+
+        elif min_right < distance:
+            speed, angle = 3, -50
+            motor(angle, speed)
+            time.sleep(0.1)
+        else:
+            speed, angle = 3, 0
+            motor(angle, speed)
+            time.sleep(0.1)
+    except: pass
