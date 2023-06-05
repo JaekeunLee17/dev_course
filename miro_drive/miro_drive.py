@@ -1,66 +1,85 @@
-import rospy
-from sensor_msgs.msg import LaserScan
-from xycar_motor.msg import xycar_motor
-import time
-import numpy as np
- 
-msg_list = None
+#!/usr/bin/env python
 
-def callback(msg):
-    global msg_list
-    msg_list = np.array(msg.ranges)
+import rospy, time
+from sensor_msgs import LaserScan
+from xycar_msgs.msg import xycar_motor
 
-def motor(angle, speed):
-    global pub
-    global motor_control
+motor_msg = xycar_motor()
+distance = []
 
-    motor_control.angle = angle
-    motor_control.speed = speed
-
-    pub.publish(motor_control)
-
-motor_control = xycar_motor()
-rospy.init_node("driver")
-rospy.Subscriber('/scan', LaserScan, callback)
-pub = rospy.Publisher('xycar_motor', xycar_motor, queue_size = 1)
-
-while not rospy.is_shutdown():
-    # lidar detection
-    left_range = msg_list[(msg_list.size * 1) // 6 : (msg_list.size * 2) // 6]
-    front_range = np.append(msg_list[:(msg_list.size * 1)], msg_list[(msg_list.size * 5) // 6:])
-    right_range = msg_list[(msg_list.size * 4) // 6 : (msg_list.size * 5) // 6]
+def callback(data):
+    global distance, motor_msg
+    distance = data.ranges
     
-    left_range = left_range[left_range != 0]
-    right_range = right_range[right_range != 0]
-    front_range = front_range[front_range != 0]
-    try:
-        min_front = min(front_range)
-        min_left = min(left_range)
-        min_right = min(right_range)
+def drvie_go():
+    global motor_msg
+    motor_msg.speed = 20
+    motor_msg.angle = 0
+    pub.publish(motor_msg)
+    
+def drive_left():
+    global motor_msg
+    motor_msg.speed = 10
+    motor_msg.angle = -15
+    pub.publish(motor_msg)
+    
+def drive_right():
+    global motor_msg
+    motor_msg.speed = 10
+    motor_msg.angle = 15
+    pub.publish(motor_msg)
+    
+def drive_stop():
+    global motor_msg
+    motor_msg,speed = 0
+    motor_msg.angle = 0
+    pub.publish(motor_msg)
+    
+rospy.init_node("miro_drive")
+rospy.Subscriber("/scan", LaserScan, callback, queue_size = 1)
+pub = rospy.Publisher("xycar_motor", xycar_motor, queue_size = 1)
+time.sleep(3) #ready to connect lidar
+while not rospy.is_shutdown():
+    ok = 0
+    
+    for degree in range(0,360):
+        
+        # front
+        for degree in range(79,102):
+            if distance[degree] <= 0.3:
+                ok += 1
+            if ok > 3:
+                drive_stop()
+                break
+        # left
+        for degree in range(31,54):
+            if distance[degree] <= 0.3:
+                ok += 1
+            if ok > 3:
+                drive_left()
+                break 
+        #front_left
+        for degree in range(55,78):
+            if distance[degree] <= 0.3:
+                ok += 1
+            if ok > 3:
+                drive_right()
+                break 
+        # front_right
+        for degree in range(103,126):
+            if distance[degree] <= 0.3:
+                ok += 1
+            if ok > 3:
+                drive_left()
+                break 
+        # right
+        for degree in range(127,150):
+            if distance[degree] <= 0.3:
+                ok += 1
+            if ok >3:
+                drive_right()
+                break 
+            
+        if ok <= 3:
+            drvie_go 
 
-        distance = 0.25
-
-        if min_front < 0.15:
-            speed, angle = 0, 0
-            motor(angle, speed)
-            print("CLAER")
-            break
-        elif min_left >= distance and min_right >= distance:
-            speed, angle = 3, 0
-            motor(angle, speed)
-            time.sleep(0.1)
-
-        elif min_left < distance:
-            speed, angle = 3, 50
-            motor(angle, speed)
-            time.sleep(0.1)
-
-        elif min_right < distance:
-            speed, angle = 3, -50
-            motor(angle, speed)
-            time.sleep(0.1)
-        else:
-            speed, angle = 3, 0
-            motor(angle, speed)
-            time.sleep(0.1)
-    except: pass
